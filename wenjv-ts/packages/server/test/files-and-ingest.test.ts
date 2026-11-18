@@ -193,4 +193,55 @@ describe('Unified Resources, Relational Tags & Ingestion Pipeline (Schema v2)', 
     const j3 = enqueueJob({ entity_type: 'resource', entity_id: 9001, user_id: userId, user_email: 'bob@example.com' });
     expect(j3.id).not.toBe(j1.id);
   });
+
+  it('parses .xlsx spreadsheets via JSZip and decodes percent-encoded UTF-8 upload filenames', async () => {
+    const JSZip = (await import('jszip')).default;
+    const zip = new JSZip();
+    zip.file(
+      'xl/sharedStrings.xml',
+      '<?xml version="1.0" encoding="UTF-8"?><sst><si><t>课程</t></si><si><t>教室</t></si><si><t>概率论</t></si><si><t>第12教研楼114</t></si></sst>'
+    );
+    zip.file(
+      'xl/workbook.xml',
+      '<?xml version="1.0" encoding="UTF-8"?><workbook xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="考试表" sheetId="1" r:id="rId1"/></sheets></workbook>'
+    );
+    zip.file(
+      'xl/_rels/workbook.xml.rels',
+      '<?xml version="1.0" encoding="UTF-8"?><Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>'
+    );
+    zip.file(
+      'xl/worksheets/sheet1.xml',
+      '<?xml version="1.0" encoding="UTF-8"?><worksheet><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row><row r="2"><c r="A2" t="s"><v>2</v></c><c r="B2" t="s"><v>3</v></c></row></sheetData></worksheet>'
+    );
+    const xlsxBuf = await zip.generateAsync({ type: 'nodebuffer' });
+
+    const encodedName = encodeURIComponent('考试安排表.xlsx');
+    const fd = new FormData();
+    fd.append(
+      'file',
+      new Blob([new Uint8Array(xlsxBuf)], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      }),
+      encodedName
+    );
+    const up = await env.app.request('/resources/files', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: fd,
+    });
+    expect(up.status).toBe(201);
+    const rec = (await up.json()) as { id: number; title: string; original_filename: string; filename: string };
+    expect(rec.title).toBe('考试安排表.xlsx');
+    expect(rec.original_filename).toBe('考试安排表.xlsx');
+    expect(rec.filename).toContain('考试安排表-');
+
+    const job = claimNextJob();
+    expect(job).not.toBeNull();
+    await executeJob(job!);
+
+    const db = getDb();
+    const hits = matchFts5(db, '第12教研楼114', { userId });
+    expect(hits.length).toBeGreaterThan(0);
+    expect(hits[0]!.content).toContain('概率论');
+  });
 });

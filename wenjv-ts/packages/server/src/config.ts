@@ -65,9 +65,9 @@ const ConfigSchema = z.object({
   JWT_EXPIRES_IN_SECONDS: z.coerce.number().default(86400),
   ALLOWED_UPLOAD_EXTENSIONS: z.array(z.string()).default([
     'txt', 'pdf', 'md', 'json', 'sh', 'markdown',
-    'docx', 'pptx', 'csv', 'html', 'htm', 'png', 'jpg', 'jpeg',
+    'docx', 'pptx', 'xlsx', 'csv', 'html', 'htm', 'png', 'jpg', 'jpeg',
   ]),
-  MAX_UPLOAD_BYTES: z.coerce.number().default(25 * 1024 * 1024),
+  MAX_UPLOAD_BYTES: z.coerce.number().default(50 * 1024 * 1024),
   JOB_WORKER_CONCURRENCY: z.coerce.number().default(6),
   JOB_MAX_ATTEMPTS: z.coerce.number().default(3),
   JOB_POLL_INTERVAL_SECONDS: z.coerce.number().default(2.0),

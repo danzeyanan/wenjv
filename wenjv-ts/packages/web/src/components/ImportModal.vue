@@ -40,7 +40,7 @@
         >
           <div class="dz-heading">拖拽多个文件到此处，或选择本地文件 / 文件夹</div>
           <div class="dz-formats">
-            支持格式：PDF、Word (.docx)、PPT (.pptx)、Markdown (.md/.markdown)、TXT、CSV、JSON、HTML、SH、PNG/JPG（单文件 ≤ 25MB）
+            支持格式：PDF、Word (.docx)、PPT (.pptx)、Excel (.xlsx)、Markdown (.md/.markdown)、TXT、CSV、JSON、HTML、SH、PNG/JPG（单文件 ≤ 50MB）
           </div>
           <div class="dz-btns">
             <button type="button" class="pick-btn is-primary" :disabled="uploadingBatch" @click="fileInputRef?.click()">
@@ -284,6 +284,7 @@ const ALLOWED_EXTS = new Set([
   'markdown',
   'docx',
   'pptx',
+  'xlsx',
   'csv',
   'html',
   'htm',
@@ -291,7 +292,7 @@ const ALLOWED_EXTS = new Set([
   'jpg',
   'jpeg',
 ]);
-const MAX_BYTES = 25 * 1024 * 1024;
+const MAX_BYTES = 50 * 1024 * 1024;
 const ACCEPT_ATTR = Array.from(ALLOWED_EXTS)
   .map((e) => `.${e}`)
   .join(',');

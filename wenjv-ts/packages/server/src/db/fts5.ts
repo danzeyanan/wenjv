@@ -34,40 +34,62 @@ function escapeLikePattern(term: string): string {
   return term.replace(/[\\%_]/g, '\\$&');
 }
 
-export function sanitizeFtsQuery(text: string): string {
+const FTS_STOPWORDS = new Set([
+  'a', 'an', 'the', 'and', 'or', 'but', 'if', 'in', 'on', 'at', 'to', 'for', 'of', 'with',
+  'by', 'from', 'as', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had',
+  'do', 'does', 'did', 'can', 'could', 'will', 'would', 'should', 'may', 'might', 'what',
+  'which', 'who', 'whom', 'whose', 'where', 'when', 'why', 'how', 'that', 'this', 'these',
+  'those', 'it', 'its', 'into', 'about', 'using', 'based',
+]);
+
+function extractSearchWords(text: string): { cjkWords: string[]; asciiWords: string[]; rawWords: string[] } {
   const cleaned = text.replace(/[^\p{L}\p{N}_\u4e00-\u9fff]/gu, ' ');
-  const words = cleaned.split(/\s+/).filter((t) => t.length >= 1);
-  if (words.length === 0) {
-    return '';
-  }
+  const rawWords = cleaned.split(/\s+/).map((t) => t.trim()).filter((t) => t.length >= 1);
+  const cjkWords: string[] = [];
+  const allAscii: string[] = [];
 
-  const cjkParts: string[] = [];
-  const asciiParts: string[] = [];
-
-  for (const word of words) {
+  for (const word of rawWords) {
     if (/[\u4e00-\u9fff]/.test(word)) {
       const cjkChars = word.match(/[\u4e00-\u9fff]/g) || [];
-      for (let i = 0; i <= cjkChars.length - 3; i++) {
-        cjkParts.push(cjkChars.slice(i, i + 3).join(''));
+      if (cjkChars.length > 0) {
+        cjkWords.push(cjkChars.join(''));
       }
-      const asciiWordChars = word.match(/[A-Za-z0-9]+/g) || [];
-      cjkParts.push(...asciiWordChars);
+      const embeddedAscii = word.match(/[A-Za-z0-9_]+/g) || [];
+      allAscii.push(...embeddedAscii);
     } else {
-      asciiParts.push(`"${word}"`);
+      allAscii.push(word);
     }
   }
 
-  const resultParts: string[] = [];
-  if (cjkParts.length > 0) {
-    const uniqueGrams = Array.from(new Set(cjkParts));
-    const capped = uniqueGrams.slice(0, 50);
-    resultParts.push('(' + capped.map((c) => `"${c}"`).join(' OR ') + ')');
-  }
-  if (asciiParts.length > 0) {
-    resultParts.push('(' + asciiParts.join(' AND ') + ')');
+  const nonStopAscii = allAscii.filter((w) => !FTS_STOPWORDS.has(w.toLowerCase()));
+  const asciiWords = nonStopAscii.length > 0 ? nonStopAscii : allAscii;
+  return { cjkWords, asciiWords, rawWords };
+}
+
+export function sanitizeFtsQuery(text: string): string {
+  const { cjkWords, asciiWords } = extractSearchWords(text);
+  const terms: string[] = [];
+
+  for (const cw of cjkWords) {
+    const chars = Array.from(cw);
+    for (let i = 0; i <= chars.length - 3; i++) {
+      terms.push(chars.slice(i, i + 3).join(''));
+    }
   }
 
-  return resultParts.join(' AND ');
+  // SQLite FTS5 trigram only indexes tokens of >= 3 characters; shorter tokens always miss MATCH.
+  for (const aw of asciiWords) {
+    if (Array.from(aw).length >= 3) {
+      terms.push(aw);
+    }
+  }
+
+  if (terms.length === 0) {
+    return '';
+  }
+
+  const uniqueTerms = Array.from(new Set(terms)).slice(0, 40);
+  return uniqueTerms.map((t) => `"${t}"`).join(' OR ');
 }
 
 /**
@@ -179,20 +201,27 @@ export function matchFts5(
     }
   }
 
-  // Fallback to LIKE substring search when trigram FTS5 returns nothing (e.g. 1-2 char CJK)
+  // Fallback to LIKE substring search when trigram FTS5 returns nothing (e.g. 1-2 char tokens)
   if (rows.length === 0 && prompt && prompt.trim().length > 0) {
-    const cleaned = prompt.replace(/[^\p{L}\p{N}_\u4e00-\u9fff]/gu, ' ');
-    const cleanedWords = cleaned.split(/\s+/).map((w) => w.trim()).filter((w) => w.length > 0);
+    const { cjkWords, asciiWords, rawWords } = extractSearchWords(prompt);
+    const meaningful = Array.from(new Set([...cjkWords, ...asciiWords]));
+    const fallbackTerms = (meaningful.length > 0 ? meaningful : rawWords).slice(0, 8);
 
-    if (cleanedWords.length > 0) {
+    if (fallbackTerms.length > 0) {
       const fallbackWhere: string[] = [];
       const fallbackParams: (string | number)[] = [];
 
       const termConditions: string[] = [];
-      for (const w of cleanedWords.slice(0, 5)) {
+      const scoreExprs: string[] = [];
+      const scoreParams: string[] = [];
+
+      for (const w of fallbackTerms) {
         const pat = `%${escapeLikePattern(w)}%`;
-        termConditions.push("(c.content LIKE ? ESCAPE '\\' OR c.title LIKE ? ESCAPE '\\' OR c.source LIKE ? ESCAPE '\\')");
+        const cond = "(c.content LIKE ? ESCAPE '\\' OR c.title LIKE ? ESCAPE '\\' OR c.source LIKE ? ESCAPE '\\')";
+        termConditions.push(cond);
         fallbackParams.push(pat, pat, pat);
+        scoreExprs.push(`(CASE WHEN ${cond} THEN 1 ELSE 0 END)`);
+        scoreParams.push(pat, pat, pat);
       }
       fallbackWhere.push('(' + termConditions.join(' OR ') + ')');
 
@@ -203,15 +232,17 @@ export function matchFts5(
       const fSql = `
         SELECT c.id AS chunk_id, c.user_id, c.entity_type, c.entity_id, c.resource_type,
                c.chunk_order, c.page_number, c.header_path, c.title, c.source, c.content,
-               -1.0 AS bm25_score
+               -(${scoreExprs.join(' + ')}) AS bm25_score
         FROM chunks c
         WHERE ${fallbackWhere.join(' AND ')}
+        ORDER BY (${scoreExprs.join(' + ')}) DESC, c.id ASC
         LIMIT ?
       `;
-      fallbackParams.push(limit);
 
       try {
-        rows = db.prepare(fSql).all(...fallbackParams) as FtsMatchRow[];
+        rows = db
+          .prepare(fSql)
+          .all(...scoreParams, ...fallbackParams, ...scoreParams, limit) as FtsMatchRow[];
       } catch {
         rows = [];
       }

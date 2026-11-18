@@ -226,8 +226,8 @@
           <div class="detail-body">
             <div class="detail-kv"><span>类型</span><strong>{{ selectedResource.type }}</strong></div>
             <div class="detail-kv"><span>创建时间</span><strong>{{ formatDate(selectedResource.created_at) }}</strong></div>
-            <div v-if="selectedResource.filename" class="detail-kv">
-              <span>文件名</span><code class="mono">{{ selectedResource.filename }}</code>
+            <div v-if="selectedResource.original_filename || selectedResource.filename" class="detail-kv">
+              <span>文件名</span><code class="mono">{{ selectedResource.original_filename || selectedResource.filename }}</code>
             </div>
             <div v-if="selectedResource.source_url" class="detail-kv">
               <span>来源链接</span>

@@ -59,7 +59,7 @@
           v-model="file"
           icon="file"
           title="拖入文件或点击选择"
-          subtitle="PDF · Markdown · Office · CSV…"
+          subtitle="PDF · Markdown · Office · Excel · CSV…"
           :disabled="busy"
         />
         <div class="field tag-field">

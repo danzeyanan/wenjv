@@ -65,6 +65,19 @@ function hydrateResources(userId: number, rows: ResourceRow[]): ResourceRecord[]
   }));
 }
 
+/** Decode RFC-5987/percent-encoded UTF-8 filenames sent by non-browser HTTP clients. */
+function decodeUploadFilename(rawName: string): string {
+  const base = path.basename(rawName || 'upload');
+  if (!/%[0-9A-Fa-f]{2}/.test(base)) {
+    return base;
+  }
+  try {
+    return path.basename(decodeURIComponent(base));
+  } catch {
+    return base;
+  }
+}
+
 export function saveUploadFile(params: {
   userId: number;
   userEmail: string;
@@ -74,9 +87,10 @@ export function saveUploadFile(params: {
   tags?: string[];
 }): ResourceRecord {
   const db = getDb();
-  const ext = path.extname(params.originalFilename).toLowerCase().replace('.', '');
+  const displayFilename = decodeUploadFilename(params.originalFilename);
+  const ext = path.extname(displayFilename).toLowerCase().replace('.', '');
   const baseExt = ext ? `.${ext}` : '';
-  const safeName = path.basename(params.originalFilename, baseExt).replace(/[^a-zA-Z0-9_\-\u4e00-\u9fff]/g, '_');
+  const safeName = path.basename(displayFilename, baseExt).replace(/[^a-zA-Z0-9_\-\u4e00-\u9fff]/g, '_');
   const uniqueId = crypto.randomUUID().slice(0, 8);
   const storedFilename = `${safeName}-${uniqueId}${baseExt}`;
 
@@ -99,9 +113,9 @@ export function saveUploadFile(params: {
       `)
       .run(
         params.userId,
-        params.originalFilename,
+        displayFilename,
         storedFilename,
-        params.originalFilename,
+        displayFilename,
         filePath,
         params.contentType || 'application/octet-stream'
       );

@@ -19,6 +19,7 @@ import { structureAwareChunk, RecursiveTextSplitter } from '../chunker/structure
 import { parsePdf } from '../parsers/pdf.js';
 import { parseDocx } from '../parsers/docx.js';
 import { parsePptx } from '../parsers/pptx.js';
+import { parseXlsx } from '../parsers/xlsx.js';
 import { parseHtml } from '../parsers/html.js';
 import { parseText } from '../parsers/text.js';
 import { safeFetch } from './ssrf.js';
@@ -350,6 +351,8 @@ export async function executeJob(job: IngestionJobRecord): Promise<void> {
           content = (await parseDocx(buffer)).text;
         } else if (ext === 'pptx') {
           content = (await parsePptx(buffer)).text;
+        } else if (ext === 'xlsx') {
+          content = (await parseXlsx(buffer)).text;
         } else if (ext === 'html' || ext === 'htm') {
           const parsed = parseHtml(buffer.toString('utf8'));
           content = parsed.text;

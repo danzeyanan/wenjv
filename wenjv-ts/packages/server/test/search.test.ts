@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { setupTestEnv, type TestEnv } from './helper.js';
 import { claimNextJob, executeJob } from '../src/services/jobs.js';
+import { getDb } from '../src/db/index.js';
+import { replaceEntityChunks } from '../src/db/chunks.js';
+import { matchFts5, sanitizeFtsQuery } from '../src/db/fts5.js';
 
 describe('Search Service & Routes (Schema v2)', () => {
   let env: TestEnv;
@@ -109,5 +112,64 @@ describe('Search Service & Routes (Schema v2)', () => {
     expect(taggedBody.count).toBe(1);
     expect(taggedBody.documents[0]?.page_content).toContain('TypeScript');
     expect(taggedBody.documents[0]?.metadata?.tag_matched).toBe(true);
+  });
+
+  it('handles natural-language English queries and short-token LIKE fallback without stopword pollution', () => {
+    const db = getDb();
+    const userRow = db.prepare('SELECT id FROM users WHERE email = ?').get('carol@example.com') as { id: number };
+    const userId = userRow.id;
+
+    // Decoy resource inserted first with stopwords ("is", "an", "in", "to")
+    replaceEntityChunks(db, userId, 'resource', 101, [
+      {
+        id: 'decoy-1',
+        user_id: userId,
+        entity_type: 'resource',
+        entity_id: 101,
+        resource_type: 'file',
+        chunk_order: 0,
+        page_number: 1,
+        header_path: '',
+        title: 'General Intro',
+        source: 'intro.md',
+        content: 'This is an overview in general software engineering and AI practice.',
+      },
+    ]);
+
+    replaceEntityChunks(db, userId, 'resource', 102, [
+      {
+        id: 'target-1',
+        user_id: userId,
+        entity_type: 'resource',
+        entity_id: 102,
+        resource_type: 'file',
+        chunk_order: 0,
+        page_number: 1,
+        header_path: '',
+        title: 'Inverter Grids Paper',
+        source: 'grids.md',
+        content: 'Estimating output impedance challenges in inverter-based grids with Go and AI agents.',
+      },
+    ]);
+
+    const ftsQuery = sanitizeFtsQuery(
+      'What are the challenges in estimating output impedance in inverter-based grids?'
+    );
+    expect(ftsQuery).not.toContain('"in"');
+    expect(ftsQuery).not.toContain('"What"');
+    expect(ftsQuery).toContain('"challenges"');
+
+    const nlHits = matchFts5(
+      db,
+      'What are the challenges in estimating output impedance in inverter-based grids?',
+      { userId, limit: 5 }
+    );
+    expect(nlHits.length).toBeGreaterThan(0);
+    expect(nlHits[0]?.entity_id).toBe(102);
+
+    // <3-char ASCII query falls back to LIKE ordered by matched term count
+    const shortHits = matchFts5(db, 'AI Go', { userId, limit: 5 });
+    expect(shortHits.length).toBe(2);
+    expect(shortHits[0]?.entity_id).toBe(102);
   });
 });
