@@ -6,7 +6,7 @@
 [![Search](https://img.shields.io/badge/Search-BGE--M3%20%2B%20FTS5%20%2B%20Reranker%20%2B%20SigLIP2-16a34a.svg)]()
 [![Tests](https://img.shields.io/badge/Verify-47%20Unit%20Tests%20%2B%20Playwright%20E2E-success.svg)]()
 
-> **架构状态**：主力生产版本位于 [`wenjv-ts/`](./wenjv-ts/)（TypeScript + Hono 单端口前后端托管 + Vue 3 SPA + 本地 CPU OCR Sidecar）。根目录旧版 Python 后端（[`backend/`](./backend/)、[`web/`](./web/)）仅保留作历史归档。
+> **分支说明**：`main` 分支仅保留当前主力 TypeScript 全栈版本（[`wenjv-ts/`](./wenjv-ts/)）；早期 Python FastAPI + Vue 原型已完整归档至 [`python-v1`](https://github.com/lanzaoi/wenjv/tree/python-v1) 分支。
 
 ---
 
@@ -111,4 +111,4 @@ pnpm run verify:all   # 全量验收：含前端构建、OCR Sidecar 实测与 P
 | [`wenjv-ts/docs/USER_GUIDE.md`](./wenjv-ts/docs/USER_GUIDE.md) | 环境安装、配置项说明与验收手册 |
 | [`docs/media/`](./docs/media/) | 演示视频（`.mp4`）、预览动图（`.gif`）与核心功能截图 |
 | [`Dockerfile`](./Dockerfile) / [`docker-compose.yml`](./docker-compose.yml) | 适配 `wenjv-server`（`8787`）与 `wenjv-sidecar`（`8788`）的容器编排 |
-| [`backend/`](./backend/) / [`web/`](./web/) | 早期 Python FastAPI + Vue 原型（历史归档） |
+| `python-v1` 分支 | 早期 Python FastAPI + Vue 原型历史归档（[`tree/python-v1`](https://github.com/lanzaoi/wenjv/tree/python-v1)） |
