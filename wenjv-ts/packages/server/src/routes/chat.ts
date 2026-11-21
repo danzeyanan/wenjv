@@ -123,7 +123,7 @@ async function resolveHistoryWithDecay(history: RawHistoryMessage[], userId: num
 // GET /models
 chatRouter.get('/models', authMiddleware, (c) => {
   return c.json({
-    models: Array.from(new Set([config.CHAT_MODEL, 'spark-x2.6'].filter(Boolean))),
+    models: Array.from(new Set([config.CHAT_MODEL, 'deepseek-flash'].filter(Boolean))),
   });
 });
 

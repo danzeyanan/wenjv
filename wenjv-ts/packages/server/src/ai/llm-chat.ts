@@ -178,8 +178,8 @@ export async function* streamChatEvents(
 
       for (const rawLine of lines) {
         const line = rawLine.trim();
-        if (!line || !line.startsWith('data: ')) continue;
-        const dataStr = line.slice(6).trim();
+        if (!line || !line.startsWith('data:')) continue;
+        const dataStr = line.slice(5).trim();
         if (dataStr === '[DONE]') {
           if (tagCarry) {
             yield { kind: inThinkTag ? 'thinking' : 'token', text: tagCarry };

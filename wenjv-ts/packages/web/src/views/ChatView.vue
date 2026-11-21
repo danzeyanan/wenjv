@@ -978,7 +978,7 @@ async function doT0Chat() {
   chat.beginStream()
   abortCtrl = new AbortController()
   try {
-    const hist = chat.historyForApi
+    const hist = chat.historyForApi.slice(0, -1)
     await streamChatByImage(
       auth.token,
       t0File.value,

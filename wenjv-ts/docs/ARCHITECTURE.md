@@ -14,7 +14,7 @@ flowchart LR
   Server -->|"文本 + 视觉向量检索"| LanceDB[("LanceDB lance_db/")]
   Server -->|"ONNX Runtime CPU"| Models["本地模型 ../models (BGE-M3 / Reranker / SigLIP2)"]
   Server -->|"POST /ocr/image, /ocr/pdf (8788)"| Sidecar["Python OCR Sidecar (PP-OCRv5 Mobile + Pix2Text)"]
-  Server -->|"OpenAI 兼容 SSE"| LLM["云端对话大模型 (如讯飞星火 MaaS)"]
+  Server -->|"OpenAI 兼容 SSE"| LLM["云端对话大模型 (默认 DeepSeek deepseek-flash)"]
 ```
 
 ---

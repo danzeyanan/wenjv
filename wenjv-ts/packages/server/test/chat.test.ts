@@ -61,7 +61,7 @@ async function startTestLlmServer(): Promise<{
   const port = typeof addr === 'object' && addr ? addr.port : 0;
 
   return {
-    baseUrl: `http://127.0.0.1:${port}/v2`,
+    baseUrl: `http://127.0.0.1:${port}`,
     requests,
     close: () => new Promise<void>((resolve, reject) => server.close((e) => (e ? reject(e) : resolve()))),
   };
@@ -82,8 +82,8 @@ describe('Chat Routes (S5)', () => {
       UPLOAD_DIR: `${env.tmpDir}/uploads`,
       VAULT_DIR: `${env.tmpDir}/wiki_vault`,
       CHAT_API_BASE: llmServer.baseUrl,
-      CHAT_API_KEY: 'test-spark-key',
-      CHAT_MODEL: 'spark-x2.6',
+      CHAT_API_KEY: 'test-deepseek-key',
+      CHAT_MODEL: 'deepseek-flash',
     });
 
     await env.app.request('/auth/register', {
@@ -121,7 +121,7 @@ describe('Chat Routes (S5)', () => {
     const data = (await resp.json()) as { models: string[] };
     expect(Array.isArray(data.models)).toBe(true);
     expect(data.models.length).toBeGreaterThan(0);
-    expect(data.models).toContain('spark-x2.6');
+    expect(data.models).toContain('deepseek-flash');
   });
 
   it('streams SSE events on POST /chat with reasoning tokens and resolved multimodal attachment images', async () => {
@@ -188,7 +188,9 @@ describe('Chat Routes (S5)', () => {
     // and decayed the distant history turn (>= 2 turns before latest history item)
     expect(llmServer.requests.length).toBe(1);
     const sent = llmServer.requests[0]!;
-    expect(sent.authorization).toBe('Bearer test-spark-key');
+    expect(sent.url).toBe('/chat/completions');
+    expect(sent.body.model).toBe('deepseek-flash');
+    expect(sent.authorization).toBe('Bearer test-deepseek-key');
     const sentMsgs = sent.body.messages || [];
     const oldTurn = sentMsgs.find((m) => typeof m.content === 'string' && m.content.includes('远期附图消息'));
     expect(oldTurn).toBeDefined();
@@ -241,10 +243,12 @@ describe('Chat Routes (S5)', () => {
   it('extracts inline <think>...</think> blocks split across SSE chunks into thinking events', async () => {
     const tagServer = http.createServer((_req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
+      res.write(': keep-alive\n\n');
       const chunks = ['<thi', 'nk>内部推理', '轨迹</t', 'hink>\n\n最终结论'];
-      for (const c of chunks) {
-        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: c } }] })}\n\n`);
-      }
+      chunks.forEach((c, idx) => {
+        const prefix = idx === 0 ? 'data:' : 'data: ';
+        res.write(`${prefix}${JSON.stringify({ choices: [{ delta: { content: c } }] })}\n\n`);
+      });
       res.write('data: [DONE]\n\n');
       res.end();
     });
@@ -253,7 +257,7 @@ describe('Chat Routes (S5)', () => {
     const port = typeof addr === 'object' && addr ? addr.port : 0;
     try {
       const { streamChatEvents, streamChatCompletions } = await import('../src/ai/llm-chat.js');
-      loadConfig({ CHAT_API_BASE: `http://127.0.0.1:${port}/v2`, CHAT_API_KEY: 'k' });
+      loadConfig({ CHAT_API_BASE: `http://127.0.0.1:${port}`, CHAT_API_KEY: 'k' });
 
       const events: Array<{ kind: string; text: string }> = [];
       for await (const ev of streamChatEvents({ messages: [{ role: 'user', content: 'hi' }] })) {

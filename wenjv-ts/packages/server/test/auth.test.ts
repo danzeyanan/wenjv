@@ -128,7 +128,7 @@ describe('Auth & Users Service & Routes (S1)', () => {
     try {
       fs.writeFileSync(
         path.join(env.tmpDir, 'backend.env'),
-        'SECRET_KEY=python-shared-secret-key\nCHAT_MODEL=spark-x2.6\n',
+        'SECRET_KEY=python-shared-secret-key\nCHAT_MODEL=deepseek-flash\n',
         'utf8'
       );
       const cfg = loadConfig({ BASE_DIR: env.tmpDir });

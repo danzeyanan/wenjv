@@ -75,8 +75,8 @@ const ConfigSchema = z.object({
 
   CHAT_PROVIDER: z.string().default('openai'),
   CHAT_API_KEY: z.string().default(''),
-  CHAT_MODEL: z.string().default('spark-x2.6'),
-  CHAT_API_BASE: z.string().default('https://maas-api.cn-huabei-1.xf-yun.com/v2'),
+  CHAT_MODEL: z.string().default('deepseek-flash'),
+  CHAT_API_BASE: z.string().default('https://api.deepseek.com'),
 
   EMBEDDING_PROVIDER: z.string().default('local'),
   EMBEDDING_API_KEY: z.string().default(''),

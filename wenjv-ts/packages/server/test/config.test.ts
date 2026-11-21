@@ -55,4 +55,23 @@ describe('Config Boolean & Env Compatibility', () => {
   it('formats numeric env parse errors with field context (L3)', () => {
     expect(() => loadConfig({ PORT: 'not-a-number' as unknown as number })).toThrow(/环境变量配置无效: PORT:/);
   });
+
+  it('defaults chat configuration to DeepSeek deepseek-flash', () => {
+    const prevBase = process.env['CHAT_API_BASE'];
+    const prevModel = process.env['CHAT_MODEL'];
+    const emptyBaseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wenjv-ds-cfg-'));
+    try {
+      delete process.env['CHAT_API_BASE'];
+      delete process.env['CHAT_MODEL'];
+      const cfg = loadConfig({ BASE_DIR: emptyBaseDir });
+      expect(cfg.CHAT_API_BASE).toBe('https://api.deepseek.com');
+      expect(cfg.CHAT_MODEL).toBe('deepseek-flash');
+    } finally {
+      fs.rmSync(emptyBaseDir, { recursive: true, force: true });
+      if (prevBase === undefined) delete process.env['CHAT_API_BASE'];
+      else process.env['CHAT_API_BASE'] = prevBase;
+      if (prevModel === undefined) delete process.env['CHAT_MODEL'];
+      else process.env['CHAT_MODEL'] = prevModel;
+    }
+  });
 });
