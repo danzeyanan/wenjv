@@ -33,3 +33,4 @@ web/dist/
 start/kb_runtime.env
 start/wenjv_runtime.env
 models/
+dist-models/

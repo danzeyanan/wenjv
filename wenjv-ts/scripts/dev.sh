@@ -12,6 +12,21 @@ if [[ ! -f "$WENJV_BASE_DIR/backend.env" && -f "$HOME/.config/wenjv/backend.env"
   cp "$HOME/.config/wenjv/backend.env" "$WENJV_BASE_DIR/backend.env"
 fi
 
+MODELS_DIR="${MODELS_DIR:-$(cd "$ROOT/.." && pwd)/models}"
+siglip_vision_ok=0
+for cand in vision_model_q4.onnx vision_model_q4f16.onnx vision_model.onnx vision_model_fp16.onnx vision_model_int8.onnx; do
+  if [[ -f "$MODELS_DIR/siglip2_onnx/onnx/$cand" ]]; then
+    siglip_vision_ok=1
+    break
+  fi
+done
+if [[ ! -f "$MODELS_DIR/bge_m3_onnx/model_quantized.onnx" || ! -f "$MODELS_DIR/bge_m3_onnx/tokenizer.json" \
+   || ! -f "$MODELS_DIR/bge_reranker_base/model_quantized.onnx" || ! -f "$MODELS_DIR/bge_reranker_base/tokenizer.json" \
+   || ! -f "$MODELS_DIR/siglip2_onnx/onnx/text_model_int8.onnx" || ! -f "$MODELS_DIR/siglip2_onnx/tokenizer.json" \
+   || $siglip_vision_ok -eq 0 ]]; then
+  echo "提示：未检测到完整本地 ONNX 模型（$MODELS_DIR），如使用本地检索/以图搜图，可先运行：pnpm run download-models"
+fi
+
 echo "============================================="
 echo "  问据 wenjv (TypeScript) 开发环境启动中..."
 echo "  数据目录: $WENJV_BASE_DIR"

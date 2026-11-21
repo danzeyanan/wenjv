@@ -4,9 +4,9 @@
 
 [![Stack](https://img.shields.io/badge/Stack-TypeScript%20%7C%20Hono%20%7C%20Vue%203%20%7C%20SQLite-2563eb.svg)]()
 [![Search](https://img.shields.io/badge/Search-BGE--M3%20%2B%20FTS5%20%2B%20Reranker%20%2B%20SigLIP2-16a34a.svg)]()
-[![Tests](https://img.shields.io/badge/Verify-47%20Unit%20Tests%20%2B%20Playwright%20E2E-success.svg)]()
+[![Tests](https://img.shields.io/badge/Verify-48%20Unit%20Tests%20%2B%20Playwright%20E2E-success.svg)]()
 
-> **分支说明**：`main` 分支仅保留当前主力 TypeScript 全栈版本（[`wenjv-ts/`](./wenjv-ts/)）；早期 Python FastAPI + Vue 原型已完整归档至 [`python-v1`](https://github.com/lanzaoi/wenjv/tree/python-v1) 分支。
+> **分支说明**：`main` 分支仅保留当前主力 TypeScript 全栈版本（[`wenjv-ts/`](./wenjv-ts/)）；早期 Python FastAPI + Vue 原型已完整归档至 [`python-v1`](https://github.com/danzeyanan/wenjv/tree/python-v1) 分支。
 
 ---
 
@@ -14,7 +14,7 @@
 
 点击下方动图可直接查看或下载 **`1080p` 完整有声演示视频**（04:10，涵盖多文件批量导入、CSDN 网页抓取、收件箱转正 Wiki 图谱、Excel / 手写公式 KaTeX 问答、无依据拒答、SigLIP2 以图搜图与 `/admin` 监控）：
 
-[![问据 wenjv 演示视频预览](./docs/media/wenjv-demo-preview.gif)](https://github.com/lanzaoi/wenjv/raw/main/docs/media/wenjv-demo.mp4)
+[![问据 wenjv 演示视频预览](./docs/media/wenjv-demo-preview.gif)](https://github.com/danzeyanan/wenjv/raw/main/docs/media/wenjv-demo.mp4)
 
 > 📺 **完整视频文件**：[`docs/media/wenjv-demo.mp4`](./docs/media/wenjv-demo.mp4)（`14 MB`，`1920×1080`，H.264/AAC）。  
 > *提示：由于 GitHub 限制 Git 直接推送 `<video>` 标签，如需在 GitHub 页面内直接嵌出原生带声音播放器，可在 GitHub 网页端点击编辑本 `README.md` 并将本地 `wenjv-demo.mp4` 直接拖入编辑框生成 `user-attachments` 链接。*
@@ -62,18 +62,28 @@
 
 更多配置、环境变量与部署细节请见 [`wenjv-ts/docs/USER_GUIDE.md`](./wenjv-ts/docs/USER_GUIDE.md) 与 [`wenjv-ts/docs/ARCHITECTURE.md`](./wenjv-ts/docs/ARCHITECTURE.md)。
 
-### 1. 安装依赖与准备配置
+### 1. 安装依赖、下载模型与准备配置
+
+> 全流程使用跨平台 Node.js 脚本，**Windows（PowerShell / CMD）、macOS 与 Linux** 均可直接执行相同命令。
 
 ```bash
 cd wenjv-ts
 pnpm install --frozen-lockfile
-pnpm run doctor
 
-# 如需开启本地 OCR / 手写公式识别 Sidecar（可选，推荐）
+# 一键下载并校验全部本地模型（检索 BGE-M3 / BGE-Reranker / SigLIP2 + OCR PP-OCRv5 / Pix2Text）
+pnpm run download-models
+# 可选参数：仅下载 OCR（-- --only ocr）或跳过 OCR（-- --no-ocr）
+# 国内网络可使用代理或自定义镜像加速：
+#   Linux / macOS:       WENJV_GITHUB_PROXY=https://gh-proxy.com/ pnpm run download-models
+#   Windows PowerShell:  $env:WENJV_GITHUB_PROXY="https://gh-proxy.com/"; pnpm run download-models
+#   自定义镜像基地址:     pnpm run download-models -- --base-url https://your-mirror.example.com/wenjv-models
+
+# 如需开启本地 OCR / 手写公式识别 Sidecar（可选，推荐；模型已由上方 download-models 自动就位）
 python3 -m venv sidecar/.venv
-sidecar/.venv/bin/pip install ./sidecar
+sidecar/.venv/bin/pip install ./sidecar          # Windows: sidecar\.venv\Scripts\pip install ./sidecar
 
 # 复制环境变量模板并填写 CHAT_API_KEY / JWT_SECRET
+# 默认配置路径：~/.config/wenjv/backend.env（Windows 为 %USERPROFILE%\.config\wenjv\backend.env）
 mkdir -p ~/.config/wenjv
 cp .env.example ~/.config/wenjv/backend.env
 ```
@@ -82,7 +92,8 @@ cp .env.example ~/.config/wenjv/backend.env
 
 ```bash
 cd wenjv-ts
-bash scripts/start-prod.sh
+pnpm start              # 跨平台一键启动（自动构建前端，缺模型时交互提示下载）
+# bash scripts/start-prod.sh   # Linux / WSL 亦可继续使用原 bash 入口
 ```
 
 浏览器访问 `http://127.0.0.1:8787`（Node 服务单端口同时托管 Vue 3 前端与 API，运行时数据默认存储于 `~/.config/wenjv`）。
@@ -100,7 +111,7 @@ docker compose up -d --build
 
 ```bash
 cd wenjv-ts
-pnpm run verify       # 快速门禁：no-stubs 检查 + TypeScript 类型检查 + Vitest 47 项单测
+pnpm run verify       # 快速门禁：no-stubs 检查 + TypeScript 类型检查 + Vitest 48 项单测
 pnpm run verify:all   # 全量验收：含前端构建、OCR Sidecar 实测与 Playwright E2E
 ```
 
@@ -111,4 +122,4 @@ pnpm run verify:all   # 全量验收：含前端构建、OCR Sidecar 实测与 P
 | [`wenjv-ts/docs/USER_GUIDE.md`](./wenjv-ts/docs/USER_GUIDE.md) | 环境安装、配置项说明与验收手册 |
 | [`docs/media/`](./docs/media/) | 演示视频（`.mp4`）、预览动图（`.gif`）与核心功能截图 |
 | [`Dockerfile`](./Dockerfile) / [`docker-compose.yml`](./docker-compose.yml) | 适配 `wenjv-server`（`8787`）与 `wenjv-sidecar`（`8788`）的容器编排 |
-| `python-v1` 分支 | 早期 Python FastAPI + Vue 原型历史归档（[`tree/python-v1`](https://github.com/lanzaoi/wenjv/tree/python-v1)） |
+| `python-v1` 分支 | 早期 Python FastAPI + Vue 原型历史归档（[`tree/python-v1`](https://github.com/danzeyanan/wenjv/tree/python-v1)） |

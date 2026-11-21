@@ -7,10 +7,12 @@
 - **Node.js**：`>=22.12 <23`（仓库根目录包含 `wenjv-ts/.nvmrc`）
 - **pnpm**：`10.34.9`（见 `wenjv-ts/package.json` `packageManager`）
 - **Python Sidecar（可选，推荐开启以支持图片/扫描 PDF OCR 与公式识别）**：Python `>=3.12`
-- **本地 ONNX 模型目录**（默认读取上级目录 `../models` 或 `MODELS_DIR`）：
+- **本地模型目录**（默认读取上级目录 `../models` 或 `MODELS_DIR`，由 Node 主服务与 Python OCR Sidecar 自动加载）：
   - `bge_m3_onnx`（文本向量）
   - `bge_reranker_base`（文本重排）
   - `siglip2_onnx`（以图搜图 / 图文匹配）
+  - `ocr_rapidocr`（PP-OCRv5 Mobile 中英文通用 OCR）
+  - `ocr_pix2text`（Pix2Text + CnOCR + CnSTD 公式与版面识别）
 
 ---
 
@@ -31,29 +33,60 @@ pnpm run doctor
 ```bash
 cd wenjv-ts/sidecar
 python3 -m venv .venv
-.venv/bin/pip install .
+.venv/bin/pip install .        # Windows PowerShell: .venv\Scripts\pip install .
 ```
 
-### 2. 配置环境变量
+### 2. 下载本地模型（检索 + OCR 一键开箱，全平台通用）
 
-服务默认读取 `$WENJV_BASE_DIR/backend.env`（默认 `~/.config/wenjv/backend.env`），模板见 `wenjv-ts/.env.example`。至少配置好对话模型密钥与 JWT 密钥：
+本地向量嵌入（`bge_m3_onnx`）、重排（`bge_reranker_base`）、以图搜图（`siglip2_onnx`）以及 OCR Sidecar 权重（`ocr_rapidocr`、`ocr_pix2text`）以压缩包形式托管在 GitHub Releases（标签 `v1.0.0`），不直接占用 Git 仓库体积；下载脚本基于纯 Node.js（`scripts/download-models.mjs`）实现，**Windows（PowerShell / CMD）、macOS 与 Linux** 均可直接运行，下载后主服务与 OCR Sidecar 自动从 `../models` 加载，无需手动改配置：
+
+```bash
+cd wenjv-ts
+pnpm run download-models
+```
+
+常用参数与加速方式：
+
+- **国内网络加速**：通过 GitHub 代理前缀或自定义镜像地址（ModelScope / Hugging Face / 内网目录）下载：
+  ```bash
+  # Linux / macOS:
+  WENJV_GITHUB_PROXY=https://gh-proxy.com/ pnpm run download-models
+
+  # Windows PowerShell:
+  $env:WENJV_GITHUB_PROXY="https://gh-proxy.com/"; pnpm run download-models
+
+  # 或指定自定义基地址：
+  pnpm run download-models -- --base-url https://your-mirror.example.com/wenjv-models
+  ```
+- **按需下载 / 跳过 OCR / 强制重下**：支持 `--only ocr`（仅 OCR 模型）、`--only retrieval` / `--no-ocr`（仅检索模型）、`--only bge_m3_onnx,ocr_rapidocr` 与 `--force`（脚本内置 HTTP Range 断点续传、SHA256 校验与原子解压替换）。
+- **维护者重新打包发布**：如需将本地 `../models` 与本机已缓存的 OCR 模型一并打包为 Release 附件（生成 `dist-models/*.tar.gz`、`SHA256SUMS` 与 `RELEASE_NOTES.md`），可执行：
+  ```bash
+  pnpm run package-models
+  ```
+
+### 3. 配置环境变量
+
+服务默认读取 `$WENJV_BASE_DIR/backend.env`（默认 `~/.config/wenjv/backend.env`，Windows 为 `%USERPROFILE%\.config\wenjv\backend.env`），模板见 `wenjv-ts/.env.example`。至少配置好对话模型密钥与 JWT 密钥：
 
 ```dotenv
 JWT_SECRET=请替换为随机32位以上密钥
 CHAT_PROVIDER=openai
-CHAT_API_BASE=https://maas-api.cn-huabei-1.xf-yun.com/v2
-CHAT_MODEL=spark-x2.6
+CHAT_API_BASE=https://api.deepseek.com
+CHAT_MODEL=deepseek-flash
 CHAT_API_KEY=你的API_KEY
 ```
 
-### 3. 启动服务
+> 默认使用 DeepSeek 官方 API 的 `deepseek-flash` 模型，原生支持图文多模态视觉问答与深度思考（Thinking Mode）。
 
-- **生产单端口模式（推荐日常使用）**：
+### 4. 启动服务
+
+- **生产单端口模式（推荐日常使用，跨平台通用）**：
 
 ```bash
 cd wenjv-ts
-bash scripts/start-prod.sh          # 若 dist 不存在会自动构建前端
-bash scripts/start-prod.sh --build  # 强制重新打包前端后启动
+pnpm start                 # 若 dist 不存在会自动构建前端（Windows / macOS / Linux 通用）
+pnpm start -- --build      # 强制重新打包前端后启动
+# Linux / WSL 亦可运行: bash scripts/start-prod.sh
 ```
 
 启动后浏览器访问 `http://127.0.0.1:8787`（前端与 API 共用 `8787` 端口，数据默认持久化在 `~/.config/wenjv`）。
@@ -105,6 +138,7 @@ bash scripts/dev.sh
 | `WENJV_BASE_DIR` | `~/.config/wenjv` | 数据根目录（`wenjv.db`、`lance_db/`、`uploads/`、`wiki_vault/`） |
 | `MODELS_DIR` | `../models` | 本地 ONNX 模型目录 |
 | `JWT_SECRET` / `SECRET_KEY` | — | JWT 签名密钥（二者兼容，优先读取 `JWT_SECRET`） |
+| `CHAT_API_BASE` / `CHAT_MODEL` | `https://api.deepseek.com` / `deepseek-flash` | 对话大模型接口地址与默认模型（OpenAI 兼容协议） |
 | `EMBEDDING_PROVIDER` | `local` | `local` 使用本地 `bge_m3_onnx`；可改为远端 OpenAI 兼容服务 |
 | `RERANK_ENABLED` / `RERANK_PROVIDER` | `true` / `local_onnx` | 是否启用本地 `bge_reranker_base` 重排 |
 | `OCR_ENABLED` / `OCR_SIDECAR_URL` | `true` / `http://127.0.0.1:8788` | 是否启用本地 OCR Sidecar |

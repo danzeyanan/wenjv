@@ -7,6 +7,7 @@ source "$ROOT/scripts/env.sh"
 
 fail=0
 ok()   { printf '  \033[32mOK\033[0m   %s\n' "$1"; }
+warn() { printf '  \033[33mWARN\033[0m %s\n' "$1"; }
 bad()  { printf '  \033[31mFAIL\033[0m %s\n' "$1"; fail=1; }
 
 echo "== 工具链"
@@ -51,6 +52,56 @@ if [[ -d "$ROOT/node_modules" ]]; then
   ") || fail=1
 else
   bad "node_modules 不存在，先运行 pnpm install"
+fi
+
+echo "== 本地 ONNX 模型"
+MODELS_DIR="${MODELS_DIR:-$(cd "$ROOT/.." && pwd)/models}"
+models_missing=0
+if [[ -f "$MODELS_DIR/bge_m3_onnx/model_quantized.onnx" && -f "$MODELS_DIR/bge_m3_onnx/tokenizer.json" ]]; then
+  ok "bge_m3_onnx → $MODELS_DIR/bge_m3_onnx"
+else
+  warn "bge_m3_onnx 缺失（$MODELS_DIR/bge_m3_onnx）"
+  models_missing=1
+fi
+if [[ -f "$MODELS_DIR/bge_reranker_base/model_quantized.onnx" && -f "$MODELS_DIR/bge_reranker_base/tokenizer.json" ]]; then
+  ok "bge_reranker_base → $MODELS_DIR/bge_reranker_base"
+else
+  warn "bge_reranker_base 缺失（$MODELS_DIR/bge_reranker_base）"
+  models_missing=1
+fi
+siglip_vision_ok=0
+for cand in vision_model_q4.onnx vision_model_q4f16.onnx vision_model.onnx vision_model_fp16.onnx vision_model_int8.onnx; do
+  if [[ -f "$MODELS_DIR/siglip2_onnx/onnx/$cand" ]]; then
+    siglip_vision_ok=1
+    break
+  fi
+done
+if [[ -f "$MODELS_DIR/siglip2_onnx/onnx/text_model_int8.onnx" && -f "$MODELS_DIR/siglip2_onnx/tokenizer.json" && $siglip_vision_ok -eq 1 ]]; then
+  ok "siglip2_onnx → $MODELS_DIR/siglip2_onnx"
+else
+  warn "siglip2_onnx 缺失（$MODELS_DIR/siglip2_onnx）"
+  models_missing=1
+fi
+if [[ -f "$MODELS_DIR/ocr_rapidocr/ch_PP-OCRv5_det_mobile.onnx" \
+   && -f "$MODELS_DIR/ocr_rapidocr/ch_PP-OCRv5_rec_mobile.onnx" \
+   && -f "$MODELS_DIR/ocr_rapidocr/ch_ppocr_mobile_v2.0_cls_mobile.onnx" ]]; then
+  ok "ocr_rapidocr → $MODELS_DIR/ocr_rapidocr"
+else
+  warn "ocr_rapidocr 缺失（$MODELS_DIR/ocr_rapidocr）"
+  models_missing=1
+fi
+if [[ -f "$MODELS_DIR/ocr_pix2text/pix2text/1.1/mfd-1.5-onnx/pix2text-mfd-1.5.onnx" \
+   && -f "$MODELS_DIR/ocr_pix2text/pix2text/1.1/mfr-1.5-onnx/encoder_model.onnx" \
+   && -f "$MODELS_DIR/ocr_pix2text/pix2text/1.1/mfr-1.5-onnx/decoder_model.onnx" \
+   && -f "$MODELS_DIR/ocr_pix2text/cnocr/2.3/densenet_lite_136-gru/cnocr-v2.3-densenet_lite_136-gru-epoch=004-ft-model.onnx" \
+   && -f "$MODELS_DIR/ocr_pix2text/cnstd/1.2/ppocr/multi_PP-OCRv6_det_small/PP-OCRv6_det_small.onnx" ]]; then
+  ok "ocr_pix2text → $MODELS_DIR/ocr_pix2text"
+else
+  warn "ocr_pix2text 缺失（$MODELS_DIR/ocr_pix2text）"
+  models_missing=1
+fi
+if [[ $models_missing -eq 1 ]]; then
+  echo "  提示：可运行 pnpm run download-models 一键下载本地模型（不启用本地检索或 OCR 可忽略）。"
 fi
 
 echo

@@ -4,6 +4,7 @@ import os
 import re
 import threading
 import time
+from pathlib import Path
 from typing import Any, Literal
 
 os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
@@ -19,11 +20,81 @@ logger = logging.getLogger("wenjv-ocr-sidecar")
 
 OcrMode = Literal["auto", "general", "formula"]
 
+_RAPIDOCR_REQUIRED_FILES = {
+    "Det.model_path": "ch_PP-OCRv5_det_mobile.onnx",
+    "Rec.model_path": "ch_PP-OCRv5_rec_mobile.onnx",
+    "Cls.model_path": "ch_ppocr_mobile_v2.0_cls_mobile.onnx",
+}
+_PIX2TEXT_ENV_DIRS = (
+    ("pix2text", "PIX2TEXT_HOME"),
+    ("cnocr", "CNOCR_HOME"),
+    ("cnstd", "CNSTD_HOME"),
+)
+_PIX2TEXT_REQUIRED_FILES = (
+    ("pix2text", "1.1", "mfd-1.5-onnx", "pix2text-mfd-1.5.onnx"),
+    ("pix2text", "1.1", "mfr-1.5-onnx", "encoder_model.onnx"),
+    ("pix2text", "1.1", "mfr-1.5-onnx", "decoder_model.onnx"),
+    ("cnocr", "2.3", "densenet_lite_136-gru", "cnocr-v2.3-densenet_lite_136-gru-epoch=004-ft-model.onnx"),
+    ("cnstd", "1.2", "ppocr", "multi_PP-OCRv6_det_small", "PP-OCRv6_det_small.onnx"),
+)
+
+
+def _resolve_models_dir() -> Path | None:
+    env_dir = os.environ.get("MODELS_DIR", "").strip()
+    if env_dir:
+        candidate = Path(env_dir).expanduser()
+        if candidate.is_dir():
+            return candidate
+    for candidate in (
+        Path(__file__).resolve().parent.parent.parent / "models",
+        Path("/app/models"),
+    ):
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
+def _local_rapidocr_paths(models_dir: Path | None) -> dict[str, str] | None:
+    if not models_dir:
+        return None
+    rapid_dir = models_dir / "ocr_rapidocr"
+    resolved: dict[str, str] = {}
+    for param_key, filename in _RAPIDOCR_REQUIRED_FILES.items():
+        fp = rapid_dir / filename
+        if not fp.is_file():
+            return None
+        resolved[param_key] = str(fp)
+    return resolved
+
+
+def _is_local_pix2text_ready(models_dir: Path | None) -> bool:
+    if not models_dir:
+        return False
+    p2t_root = models_dir / "ocr_pix2text"
+    return all((p2t_root.joinpath(*parts)).is_file() for parts in _PIX2TEXT_REQUIRED_FILES)
+
+
+def _configure_pix2text_env() -> Path | None:
+    models_dir = _resolve_models_dir()
+    if not models_dir:
+        return None
+    p2t_root = models_dir / "ocr_pix2text"
+    if not p2t_root.is_dir():
+        return models_dir
+    for subdir, env_key in _PIX2TEXT_ENV_DIRS:
+        target = p2t_root / subdir
+        if target.is_dir():
+            os.environ.setdefault(env_key, str(target))
+    return models_dir
+
+
+_configure_pix2text_env()
+
 _MATH_SIGNAL_RE = re.compile(
     r"([=≈≠≤≥±∑∫√∞∆Δδφλμπθασωγ∂∇×÷^_]|\\[a-zA-Z]+)"
 )
 
-app = FastAPI(title="Wenjv Local CPU OCR Sidecar", version="0.1.0")
+app = FastAPI(title="Wenjv Local CPU OCR Sidecar", version="1.0.0")
 
 _rapid_lock = threading.Lock()
 _p2t_lock = threading.Lock()
@@ -40,17 +111,24 @@ def _get_rapidocr() -> Any:
             return _rapid_engine
         from rapidocr import EngineType, ModelType, OCRVersion, RapidOCR
 
-        logger.info("Initializing RapidOCR (PP-OCRv5 Mobile ONNX CPU)...")
-        _rapid_engine = RapidOCR(
-            params={
-                "Det.engine_type": EngineType.ONNXRUNTIME,
-                "Det.ocr_version": OCRVersion.PPOCRV5,
-                "Det.model_type": ModelType.MOBILE,
-                "Rec.engine_type": EngineType.ONNXRUNTIME,
-                "Rec.ocr_version": OCRVersion.PPOCRV5,
-                "Rec.model_type": ModelType.MOBILE,
-            }
-        )
+        params: dict[str, Any] = {
+            "Det.engine_type": EngineType.ONNXRUNTIME,
+            "Det.ocr_version": OCRVersion.PPOCRV5,
+            "Det.model_type": ModelType.MOBILE,
+            "Rec.engine_type": EngineType.ONNXRUNTIME,
+            "Rec.ocr_version": OCRVersion.PPOCRV5,
+            "Rec.model_type": ModelType.MOBILE,
+        }
+        models_dir = _resolve_models_dir()
+        local_paths = _local_rapidocr_paths(models_dir)
+        if local_paths:
+            params["Cls.engine_type"] = EngineType.ONNXRUNTIME
+            params.update(local_paths)
+            logger.info("Initializing RapidOCR from local models (%s)...", models_dir / "ocr_rapidocr")
+        else:
+            logger.info("Initializing RapidOCR (PP-OCRv5 Mobile ONNX CPU)...")
+
+        _rapid_engine = RapidOCR(params=params)
         return _rapid_engine
 
 
@@ -61,9 +139,13 @@ def _get_pix2text() -> Any:
     with _p2t_lock:
         if _p2t_engine is not None:
             return _p2t_engine
+        _configure_pix2text_env()
         from pix2text import Pix2Text
 
-        logger.info("Initializing Pix2Text (MFD + MFR ONNX CPU)...")
+        logger.info(
+            "Initializing Pix2Text (MFD + MFR ONNX CPU, PIX2TEXT_HOME=%s)...",
+            os.environ.get("PIX2TEXT_HOME", "<default>"),
+        )
         _p2t_engine = Pix2Text.from_config(device="cpu")
         return _p2t_engine
 
@@ -133,8 +215,12 @@ def _recognize_pil(pil_img: Image.Image, mode: OcrMode) -> tuple[str, str]:
 
 @app.get("/health")
 def health() -> dict[str, Any]:
+    models_dir = _resolve_models_dir()
     return {
         "status": "ok",
+        "models_dir": str(models_dir) if models_dir else None,
+        "ocr_rapidocr_local": _local_rapidocr_paths(models_dir) is not None,
+        "ocr_pix2text_local": _is_local_pix2text_ready(models_dir),
         "engines": {
             "ppocrv5_mobile_loaded": _rapid_engine is not None,
             "pix2text_loaded": _p2t_engine is not None,

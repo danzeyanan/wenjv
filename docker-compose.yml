@@ -7,7 +7,11 @@ services:
     image: wenjv-sidecar:latest
     ports:
       - "8788:8788"
+    environment:
+      MODELS_DIR: "/app/models"
     volumes:
+      # Read-only mount of local ONNX / OCR models (ocr_rapidocr + ocr_pix2text)
+      - ./models:/app/models:ro
       # Cache downloaded RapidOCR / Pix2Text ONNX weights across restarts
       - sidecar-cache:/home/appuser/.cache
       - sidecar-pix2text:/home/appuser/.pix2text

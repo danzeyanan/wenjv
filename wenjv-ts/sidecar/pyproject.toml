@@ -1,6 +1,6 @@
 [project]
 name = "wenjv-ocr-sidecar"
-version = "0.1.0"
+version = "1.0.0"
 description = "Local CPU OCR sidecar (PP-OCRv5 Mobile via RapidOCR + Pix2Text formula extraction)"
 requires-python = ">=3.12"
 dependencies = [
