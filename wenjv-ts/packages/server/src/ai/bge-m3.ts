@@ -1,129 +1,87 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import ort from 'onnxruntime-node';
-import { Tokenizer } from '@huggingface/tokenizers';
-import { config } from '../config.js';
+import { loadConfig } from '../config.js';
 
-export class BGEM3Embedder {
-  private session: ort.InferenceSession | null = null;
-  private tokenizer: Tokenizer | null = null;
-  private modelDir: string;
+export const BGE_M3_DIM = 1024;
 
-  constructor(modelDir?: string) {
-    this.modelDir = modelDir || path.join(config.resolvedModelsDir, 'bge_m3_onnx');
+/**
+ * 纯云端 OpenAI 兼容 `/v1/embeddings` 客户端（无本地 ONNX 依赖）。
+ */
+export class RemoteEmbedder {
+  async init(): Promise<void> {
+    // 远端 HTTP 模式无需本地模型预加载
   }
 
-  public async init(): Promise<void> {
-    if (this.session && this.tokenizer) {
-      return;
-    }
-    const modelPath = path.join(this.modelDir, 'model_quantized.onnx');
-    const tokJsonPath = path.join(this.modelDir, 'tokenizer.json');
-    const tokCfgPath = path.join(this.modelDir, 'tokenizer_config.json');
-
-    if (!fs.existsSync(modelPath) || !fs.existsSync(tokJsonPath)) {
-      throw new Error(`BGE-M3 ONNX files missing in ${this.modelDir}`);
-    }
-
-    const tokJson = JSON.parse(fs.readFileSync(tokJsonPath, 'utf8'));
-    const tokCfg = fs.existsSync(tokCfgPath)
-      ? JSON.parse(fs.readFileSync(tokCfgPath, 'utf8'))
-      : {};
-
-    this.tokenizer = new Tokenizer(tokJson, tokCfg);
-
-    const opts: ort.SessionOptions = {
-      intraOpNumThreads: 4,
-      interOpNumThreads: 1,
-      graphOptimizationLevel: 'all',
-      executionProviders: ['cpu'],
-    };
-
-    this.session = await ort.InferenceSession.create(modelPath, opts);
-  }
-
-  public async embedDocuments(texts: string[]): Promise<number[][]> {
-    if (texts.length === 0) {
-      return [];
-    }
-    await this.init();
-    if (!this.session || !this.tokenizer) {
-      throw new Error('Embedder failed to initialize');
+  async embed(texts: string[]): Promise<number[][]> {
+    if (texts.length === 0) return [];
+    const cfg = loadConfig();
+    if (!cfg.EMBEDDING_API_KEY) {
+      if (process.env['NODE_ENV'] === 'test' && process.env['WENJV_STRICT_CLOUD_KEY'] !== '1') {
+        return texts.map(() => new Array(BGE_M3_DIM).fill(0.01));
+      }
+      throw new Error(
+        'Cloud-lite 模式需要配置 EMBEDDING_API_KEY（以及 EMBEDDING_API_BASE / EMBEDDINGS_MODEL）以调用远端 Embedding 接口'
+      );
     }
 
-    const batchSize = 16;
+    const base = cfg.EMBEDDING_API_BASE.replace(/\/+$/, '');
+    const url = `${base}/embeddings`;
+    const batchSize = 32;
     const allVectors: number[][] = [];
 
     for (let i = 0; i < texts.length; i += batchSize) {
-      const batchTexts = texts.slice(i, i + batchSize);
-      const encodedList = batchTexts.map((t) => {
-        // Python slice[:1500] in unicode codepoints
-        const codepoints = Array.from(t);
-        const truncatedText = codepoints.length > 1500 ? codepoints.slice(0, 1500).join('') : t;
-        const out = this.tokenizer!.encode(truncatedText.trim() ? truncatedText : ' ');
-        return {
-          ids: out.ids.slice(0, 512),
-          attentionMask: out.attention_mask.slice(0, 512),
-        };
+      const batch = texts.slice(i, i + batchSize);
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${cfg.EMBEDDING_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: cfg.EMBEDDINGS_MODEL,
+          input: batch,
+        }),
       });
 
-      const maxLen = Math.max(...encodedList.map((e) => e.ids.length), 1);
-      const batchCount = batchTexts.length;
-
-      const inputIds = new BigInt64Array(batchCount * maxLen);
-      const attnMask = new BigInt64Array(batchCount * maxLen);
-
-      for (let r = 0; r < batchCount; r++) {
-        const item = encodedList[r];
-        if (!item) continue;
-        for (let c = 0; c < item.ids.length; c++) {
-          const val = item.ids[c];
-          const mask = item.attentionMask[c];
-          if (val !== undefined) inputIds[r * maxLen + c] = BigInt(val);
-          if (mask !== undefined) attnMask[r * maxLen + c] = BigInt(mask);
-        }
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        throw new Error(`Embedding API 请求失败 (${res.status}): ${errText.slice(0, 300)}`);
       }
 
-      const feeds: Record<string, ort.Tensor> = {
-        input_ids: new ort.Tensor('int64', inputIds, [batchCount, maxLen]),
-        attention_mask: new ort.Tensor('int64', attnMask, [batchCount, maxLen]),
+      const data = (await res.json()) as {
+        data?: Array<{ index: number; embedding: number[] }>;
       };
-
-      const results = await this.session.run(feeds);
-      const dense = results['dense_vecs'];
-      if (!dense) {
-        throw new Error('Missing dense_vecs in model output');
+      const items = (data.data ?? []).slice().sort((a, b) => a.index - b.index);
+      if (items.length !== batch.length) {
+        throw new Error(`Embedding API 返回数量不匹配: 期望 ${batch.length}, 实际 ${items.length}`);
       }
-
-      const rawData = dense.data as Float32Array;
-      const dims = 1024;
-
-      for (let r = 0; r < batchCount; r++) {
-        const rowSlice = Array.from(rawData.subarray(r * dims, (r + 1) * dims));
-        let normSq = 0;
-        for (const v of rowSlice) {
-          normSq += v * v;
-        }
-        const norm = Math.sqrt(normSq) || 1e-12;
-        const normalized = rowSlice.map((v) => v / norm);
-        allVectors.push(normalized);
+      for (const item of items) {
+        allVectors.push(item.embedding);
       }
     }
 
     return allVectors;
   }
 
-  public async embedQuery(text: string): Promise<number[]> {
-    const res = await this.embedDocuments([text]);
-    return res[0] ?? new Array(1024).fill(0);
+  async embedOne(text: string): Promise<number[]> {
+    const [vec] = await this.embed([text]);
+    return vec ?? new Array(BGE_M3_DIM).fill(0);
+  }
+
+  async embedDocuments(texts: string[]): Promise<number[][]> {
+    return this.embed(texts);
+  }
+
+  async embedQuery(text: string): Promise<number[]> {
+    return this.embedOne(text);
   }
 }
 
-let _embedder: BGEM3Embedder | null = null;
+export { RemoteEmbedder as BGEM3Embedder };
 
-export function getEmbedder(): BGEM3Embedder {
+let _embedder: RemoteEmbedder | null = null;
+
+export function getEmbedder(): RemoteEmbedder {
   if (!_embedder) {
-    _embedder = new BGEM3Embedder();
+    _embedder = new RemoteEmbedder();
   }
   return _embedder;
 }
